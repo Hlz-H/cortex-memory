@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#00d4aa">
+  <link rel="manifest" href="/manifest.json">
+  <title>Cortex - AI Memory Engine</title>
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0f0f23;
+      color: #e0e0e0;
+      line-height: 1.6;
+    }
+    .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+    header {
+      border-bottom: 1px solid #333;
+      padding-bottom: 20px;
+      margin-bottom: 30px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    h1 { color: #00d4aa; font-size: 1.8rem; }
+    .stats { display: flex; gap: 20px; font-size: 0.9rem; color: #888; }
+    .grid { display: grid; grid-template-columns: 300px 1fr; gap: 20px; }
+    .sidebar { background: #1a1a2e; padding: 20px; border-radius: 8px; height: fit-content; }
+    .main { background: #1a1a2e; padding: 20px; border-radius: 8px; }
+    .form-group { margin-bottom: 15px; }
+    label { display: block; margin-bottom: 5px; color: #aaa; font-size: 0.9rem; }
+    input, textarea, select {
+      width: 100%;
+      padding: 10px;
+      background: #0f0f23;
+      border: 1px solid #333;
+      border-radius: 4px;
+      color: #e0e0e0;
+      font-family: inherit;
+    }
+    textarea { min-height: 80px; resize: vertical; }
+    .btn {
+      background: #00d4aa;
+      color: #0f0f23;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: opacity 0.2s;
+    }
+    .btn:hover { opacity: 0.9; }
+    .btn-secondary {
+      background: #333;
+      color: #e0e0e0;
+    }
+    .memory-list { margin-top: 20px; }
+    .memory-item {
+      background: #0f0f23;
+      border: 1px solid #333;
+      border-radius: 6px;
+      padding: 15px;
+      margin-bottom: 10px;
+      transition: border-color 0.2s;
+    }
+    .memory-item:hover { border-color: #00d4aa; }
+    .memory-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .memory-id { font-family: monospace; color: #666; font-size: 0.8rem; }
+    .memory-tier {
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .tier-permanent { background: #ffd700; color: #000; }
+    .tier-longterm { background: #00d4aa; color: #000; }
+    .tier-shortterm { background: #4a9eff; color: #fff; }
+    .tier-instant { background: #666; color: #fff; }
+    .memory-content { margin-bottom: 8px; word-break: break-word; }
+    .memory-meta { font-size: 0.85rem; color: #888; }
+    .tag {
+      display: inline-block;
+      background: #2a2a4a;
+      color: #a0a0ff;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      margin-right: 5px;
+    }
+    .search-box {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .search-box input { flex: 1; }
+    .filters { display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; }
+    .filters select { width: auto; min-width: 120px; }
+    .links-section { margin-top: 10px; padding-top: 10px; border-top: 1px solid #333; }
+    .link-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: #1a1a3e;
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      margin-right: 8px;
+      margin-bottom: 5px;
+    }
+    .link-arrow { color: #00d4aa; }
+    .empty-state {
+      text-align: center;
+      padding: 40px;
+      color: #666;
+    }
+    .tabs { display: flex; gap: 5px; margin-bottom: 20px; border-bottom: 1px solid #333; }
+    .tab {
+      padding: 10px 20px;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+    }
+    .tab.active { border-bottom-color: #00d4aa; color: #00d4aa; }
+    .tab:hover { color: #00d4aa; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    .tag-list { display: flex; flex-wrap: wrap; gap: 8px; }
+    .tag-item {
+      background: #2a2a4a;
+      padding: 6px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .tag-item:hover { background: #3a3a6a; }
+    .tag-item.selected { background: #00d4aa; color: #0f0f23; }
+    @media (max-width: 768px) {
+      .grid { grid-template-columns: 1fr; }
+      .stats { flex-wrap: wrap; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🧠 Cortex</h1>
+      <div class="stats" id="header-stats">
+        <span>Memories: <strong id="stat-memories">0</strong></span>
+        <span>Tags: <strong id="stat-tags">0</strong></span>
+        <span>Links: <strong id="stat-links">0</strong></span>
+      </div>
+    </header>
+
+    <div class="tabs">
+      <div class="tab active" onclick="showTab('memories')">Memories</div>
+      <div class="tab" onclick="showTab('tags')">Tags</div>
+      <div class="tab" onclick="showTab('stats')">Stats</div>
+    </div>
+
+    <div class="grid">
+      <div class="sidebar">
+        <div class="tab-content active" id="tab-memories">
+          <h3>Add Memory</h3>
+          <form hx-post="/api/memories" hx-target="#memory-list" hx-swap="beforeend" hx-on::after-request="this.reset(); loadMemories();">
+            <div class="form-group">
+              <label>Content</label>
+              <textarea name="content" required placeholder="What do you want to remember?"></textarea>
+            </div>
+            <div class="form-group">
+              <label>Tier</label>
+              <select name="tier">
+                <option value="shortterm">Short-term</option>
+                <option value="longterm">Long-term</option>
+                <option value="permanent">Permanent</option>
+                <option value="instant">Instant</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Tags (comma separated)</label>
+              <input type="text" name="tags" placeholder="e.g. ai, project, idea">
+            </div>
+            <div class="form-group">
+              <label>Category</label>
+              <input type="text" name="category" placeholder="e.g. work, personal">
+            </div>
+            <button type="submit" class="btn">Add Memory</button>
+          </form>
+        </div>
+
+        <div class="tab-content" id="tab-tags">
+          <h3>Add Tag</h3>
+          <form hx-post="/api/tags" hx-target="#tag-list" hx-swap="beforeend" hx-on::after-request="this.reset(); loadTags();">
+            <div class="form-group">
+              <label>Name</label>
+              <input type="text" name="name" required>
+            </div>
+            <div class="form-group">
+              <label>Description</label>
+              <input type="text" name="description">
+            </div>
+            <button type="submit" class="btn">Add Tag</button>
+          </form>
+        </div>
+
+        <div class="tab-content" id="tab-stats">
+          <h3>System Stats</h3>
+          <div id="stats-detail">
+            <p>Loading...</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="main">
+        <div class="tab-content active" id="content-memories">
+          <div class="search-box">
+            <input type="text" id="search-input" placeholder="Search memories..." onkeyup="if(event.key==='Enter') searchMemories()">
+            <button class="btn" onclick="searchMemories()">Search</button>
+            <button class="btn btn-secondary" onclick="loadMemories()">Refresh</button>
+          </div>
+          <div class="filters">
+            <select id="filter-tier" onchange="loadMemories()">
+              <option value="">All Tiers</option>
+              <option value="permanent">Permanent</option>
+              <option value="longterm">Long-term</option>
+              <option value="shortterm">Short-term</option>
+              <option value="instant">Instant</option>
+            </select>
+            <select id="filter-tag" onchange="loadMemories()">
+              <option value="">All Tags</option>
+            </select>
+          </div>
+          <div id="memory-list" class="memory-list">
+            <div class="empty-state">Loading memories...</div>
+          </div>
+        </div>
+
+        <div class="tab-content" id="content-tags">
+          <h3>All Tags</h3>
+          <div id="tag-list" class="tag-list">
+            <div class="empty-state">Loading tags...</div>
+          </div>
+          <h3 style="margin-top: 30px;">Tag Hierarchy</h3>
+          <div id="tag-hierarchy">
+            <div class="empty-state">Loading...</div>
+          </div>
+        </div>
+
+        <div class="tab-content" id="content-stats">
+          <h3>Statistics</h3>
+          <div id="stats-content">
+            <div class="empty-state">Loading stats...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(console.error);
+    }
+  </script>
+</body>
+</html>
