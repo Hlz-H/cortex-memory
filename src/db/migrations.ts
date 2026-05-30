@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS memories (
 );
 
 CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
-  content, metadata, content=memories, content_rowid=rowid
+  content, metadata, content=memories, content_rowid=rowid, tokenize='trigram'
 );
 
 CREATE TRIGGER IF NOT EXISTS memories_fts_ai AFTER INSERT ON memories BEGIN
@@ -104,6 +104,35 @@ CREATE INDEX IF NOT EXISTS idx_agent_runs_agent ON agent_runs(agent_id);
 CREATE INDEX IF NOT EXISTS idx_agent_runs_status ON agent_runs(status);
     `,
   },
+  {
+    version: 2,
+    name: 'fts5_trigram_tokenizer',
+    up: `
+DROP TRIGGER IF EXISTS memories_fts_ai;
+DROP TRIGGER IF EXISTS memories_fts_ad;
+DROP TRIGGER IF EXISTS memories_fts_au;
+DROP TABLE IF EXISTS memories_fts;
+
+CREATE VIRTUAL TABLE memories_fts USING fts5(
+  content, metadata, content=memories, content_rowid=rowid, tokenize='trigram'
+);
+
+CREATE TRIGGER memories_fts_ai AFTER INSERT ON memories BEGIN
+  INSERT INTO memories_fts(rowid, content, metadata) VALUES (new.rowid, new.content, new.metadata);
+END;
+
+CREATE TRIGGER memories_fts_ad AFTER DELETE ON memories BEGIN
+  INSERT INTO memories_fts(memories_fts, rowid, content, metadata) VALUES('delete', old.rowid, old.content, old.metadata);
+END;
+
+CREATE TRIGGER memories_fts_au AFTER UPDATE ON memories BEGIN
+  INSERT INTO memories_fts(memories_fts, rowid, content, metadata) VALUES('delete', old.rowid, old.content, old.metadata);
+  INSERT INTO memories_fts(rowid, content, metadata) VALUES (new.rowid, new.content, new.metadata);
+END;
+
+INSERT INTO memories_fts(memories_fts) VALUES('rebuild');
+    `,
+  },
 ];
 
 let dbInstance: Database.Database | null = null;
@@ -118,6 +147,7 @@ export function getDb(): Database.Database {
   dbInstance = new Database(config.dbPath);
   dbInstance.pragma('journal_mode = WAL');
   dbInstance.pragma('foreign_keys = ON');
+  migrate(dbInstance);
   return dbInstance;
 }
 
