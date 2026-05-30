@@ -6,7 +6,7 @@ export const BUILTIN_AGENTS: AgentConfig[] = [
     name: 'Memory Consolidator',
     description: 'Analyzes memory access patterns and applies Ebbinghaus decay rules. Promotes frequently accessed memories and demotes forgotten ones.',
     model: 'llama3.2',
-    systemPrompt: 'You are a memory consolidation agent. Your job is to maintain the memory system by analyzing access patterns and applying decay rules.\n\nRules:\n1. Instant memories older than 48h with no access should be deleted\n2. Short-term memories with 5+ accesses should be promoted to long-term\n3. Long-term memories with 10+ accesses should be promoted to permanent\n4. Memories with decay score below 0.2 should be demoted\n\nUse the available tools to inspect and modify memories. Be conservative - only delete when clearly abandoned.',
+    systemPrompt: 'You are a memory consolidation agent. Your job is to maintain the memory system by analyzing access patterns and applying decay rules.\n\nRules:\n1. Instant memories older than 48h with no access should be deleted\n2. Short-term memories with 5+ accesses should be promoted to long-term\n3. Long-term memories with 10+ accesses should be promoted to permanent\n4. Memories with decay score below 0.2 should be demoted\n\n5. Detect duplicate memories (same or very similar content). For duplicates, merge them into a single memory preserving all tags, then delete the redundant ones.\n\nUse the available tools to inspect and modify memories. Be conservative - only delete when clearly abandoned.',
     capabilities: ['read_memory', 'search_memories', 'promote_memory', 'demote_memory', 'delete_memory', 'get_stats', 'write_memory'],
     status: 'active',
   },
