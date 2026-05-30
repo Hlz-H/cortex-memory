@@ -74,16 +74,30 @@ export function createMemory(
   return getMemory(id) as Memory;
 }
 
+function resolveMemoryId(db: any, id: string): string | null {
+  const exact = db.prepare('SELECT id FROM memories WHERE id = ?').get(id) as { id: string } | undefined;
+  if (exact) return exact.id;
+  const matches = db.prepare('SELECT id FROM memories WHERE id LIKE ?').all(id + '%') as { id: string }[];
+  if (matches.length === 0) return null;
+  if (matches.length > 1) {
+    throw new Error(`Ambiguous ID prefix '${id}': matches ${matches.length} memories`);
+  }
+  return matches[0].id;
+}
+
 export function getMemory(id: string): Memory | null {
   const db = getDb();
-  const mem = db.prepare('SELECT * FROM memories WHERE id = ?').get(id) as Memory | undefined;
+  const resolvedId = resolveMemoryId(db, id);
+  if (!resolvedId) return null;
+
+  const mem = db.prepare('SELECT * FROM memories WHERE id = ?').get(resolvedId) as Memory | undefined;
   if (!mem) return null;
 
   db.prepare(
     `UPDATE memories SET accessed_at = datetime('now'), access_count = access_count + 1 WHERE id = ?`
-  ).run(id);
+  ).run(resolvedId);
 
-  mem.tags = getMemoryTags(id).map(t => ({ id: t.id, name: t.name }));
+  mem.tags = getMemoryTags(resolvedId).map(t => ({ id: t.id, name: t.name }));
   return mem;
 }
 
@@ -92,7 +106,9 @@ export function updateMemory(
   fields: Partial<{ content: string; tier: string; category: string; importance: number; metadata: string; source: string }>
 ): Memory | null {
   const db = getDb();
-  const existing = db.prepare('SELECT id FROM memories WHERE id = ?').get(id);
+  const resolvedId = resolveMemoryId(db, id);
+  if (!resolvedId) return null;
+  const existing = db.prepare('SELECT id FROM memories WHERE id = ?').get(resolvedId);
   if (!existing) return null;
 
   const updates: string[] = [];
@@ -107,16 +123,18 @@ export function updateMemory(
 
   if (updates.length > 0) {
     updates.push("updated_at = datetime('now')");
-    values.push(id);
+    values.push(resolvedId);
     db.prepare(`UPDATE memories SET ${updates.join(', ')} WHERE id = ?`).run(...values);
   }
 
-  return getMemory(id);
+  return getMemory(resolvedId);
 }
 
 export function deleteMemory(id: string): boolean {
   const db = getDb();
-  const result = db.prepare('DELETE FROM memories WHERE id = ?').run(id);
+  const resolvedId = resolveMemoryId(db, id);
+  if (!resolvedId) return false;
+  const result = db.prepare('DELETE FROM memories WHERE id = ?').run(resolvedId);
   return result.changes > 0;
 }
 
