@@ -1,6 +1,7 @@
 import { createMemory } from '../memory/store';
 import { getLogger } from '../utils/logger';
 import { generateWithOllama } from '../agent/ollama';
+import { categorizeByKeywords } from './categorize';
 
 const logger = getLogger();
 
@@ -39,11 +40,11 @@ ${options.text}`;
     }
 
     const tier = options.tier || 'shortterm';
-    const category = options.category || 'auto-summary';
     const memoryIds: string[] = [];
 
     for (const point of points) {
       if (point.trim()) {
+        const category = options.category || categorizeByKeywords(point.trim());
         const mem = createMemory(point.trim(), tier, category, undefined, ['auto-summarize']);
         memoryIds.push(mem.id);
       }

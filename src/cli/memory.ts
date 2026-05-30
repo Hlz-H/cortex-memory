@@ -2,14 +2,16 @@ import { createMemory, listMemories, getMemory, updateMemory, deleteMemory, prom
 import { searchMemories } from '../memory/search';
 import { getMemoryTags } from '../tags/index';
 import { NotFoundError } from '../utils/error';
+import { categorizeWithTags } from '../tools/categorize';
 
 function getShortId(id: string): string { return id.substring(0, 8); }
 function truncate(str: string, len: number): string { return str.length > len ? str.substring(0, len) + '...' : str; }
 
 export function addCommand(content: string, options: { tag?: string[]; category?: string; important?: boolean; instant?: boolean }): void {
   const tier = options.important ? 'longterm' : options.instant ? 'instant' : 'shortterm';
-  const mem = createMemory(content, tier, options.category, undefined, options.tag);
-  console.log(`✓ Added (${mem.tier}): ${truncate(mem.content, 60)}`);
+  const category = options.category || categorizeWithTags(content, options.tag);
+  const mem = createMemory(content, tier, category, undefined, options.tag);
+  console.log(`✓ Added (${mem.tier}/${category}): ${truncate(mem.content, 60)}`);
   console.log(`  ID: ${mem.id}`);
   if (mem.tags && mem.tags.length > 0) {
     console.log(`  Tags: ${mem.tags.map(t => t.name).join(', ')}`);
