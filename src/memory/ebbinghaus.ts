@@ -23,20 +23,15 @@ export function calculateDecay(config: DecayConfig): DecayResult {
   if (config.tier === 'permanent') {
     return { score: 1, shouldDemote: false, shouldDelete: false, suggestedTier: undefined };
   }
-  const tc = TIER_CONFIG[config.tier];
-  if (!tc) return { score: 0.5, shouldDemote: false, shouldDelete: false, suggestedTier: undefined };
 
+  const tc = TIER_CONFIG[config.tier] || TIER_CONFIG.instant;
   const rawScore = config.importance * (1 - 0.5 * Math.log2(1 + config.hoursSinceLastAccess / tc.decayPeriod));
   const score = Math.max(0, Math.min(1, rawScore));
 
-  const promoteThresholds: Record<string, { tier: string; threshold: number }[]> = {
-    instant: [{ tier: 'shortterm', threshold: tc.promoteAfter }],
-    shortterm: [{ tier: 'longterm', threshold: tc.promoteAfter }],
-    longterm: [{ tier: 'permanent', threshold: tc.promoteAfter }],
-  };
-
-  const thresholds = promoteThresholds[config.tier] || [];
-  const suggestedTier = thresholds.find(t => config.accessCount >= t.threshold)?.tier;
+  let suggestedTier: string | undefined;
+  if (config.tier === 'instant' && config.accessCount >= tc.promoteAfter) suggestedTier = 'shortterm';
+  else if (config.tier === 'shortterm' && config.accessCount >= tc.promoteAfter) suggestedTier = 'longterm';
+  else if (config.tier === 'longterm' && config.accessCount >= tc.promoteAfter) suggestedTier = 'permanent';
 
   return {
     score,

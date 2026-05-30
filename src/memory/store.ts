@@ -1,6 +1,8 @@
 import { v4 as uuidv4 } from 'uuid';
-import { getDatabase } from '../db/database';
-import { createTag, assignTagsToMemory, getMemoryTags } from '../tags/index';
+import { getDb } from '../db/database';
+import { NotFoundError, ConflictError, ValidationError } from '../utils/error';
+import { validateTier, validateString, validateNumber } from '../utils/validation';
+import { getMemoryTags, assignTagsToMemory } from '../tags/index';
 
 export interface Memory {
   id: string;
@@ -29,8 +31,11 @@ export interface MemoryListOptions {
 const VALID_TIERS = ['permanent', 'longterm', 'shortterm', 'instant'];
 const TIER_ORDER = ['instant', 'shortterm', 'longterm', 'permanent'];
 
-function validTier(tier: string): string {
-  return VALID_TIERS.includes(tier) ? tier : 'shortterm';
+function normalizeTier(tier: string): string {
+  if (!VALID_TIERS.includes(tier)) {
+    throw new ValidationError('tier', `must be one of: ${VALID_TIERS.join(', ')}`);
+  }
+  return tier;
 }
 
 export function createMemory(
@@ -42,24 +47,25 @@ export function createMemory(
   importance: number = 1.0,
   source?: string
 ): Memory {
-  const db = getDatabase();
+  const db = getDb();
   const id = uuidv4();
   const now = new Date().toISOString();
 
   db.prepare(
     `INSERT INTO memories (id, content, tier, category, agent_id, source, importance, metadata, created_at, updated_at, accessed_at, access_count)
      VALUES (?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?, 1)`
-  ).run(id, content, validTier(tier), category || null, agentId || null, source || null, importance, now, now, now);
+  ).run(id, content, normalizeTier(tier), category || null, agentId || null, source || null, importance, now, now, now);
 
   if (tags && tags.length > 0) {
     const tagIds: string[] = [];
     for (const tagName of tags) {
-      const existing = getDatabase().prepare('SELECT id FROM tags WHERE name = ?').get(tagName) as { id: string } | undefined;
+      const existing = db.prepare('SELECT id FROM tags WHERE name = ?').get(tagName) as { id: string } | undefined;
       if (existing) {
         tagIds.push(existing.id);
       } else {
-        const tag = createTag(tagName);
-        tagIds.push(tag.id);
+        const tagId = uuidv4();
+        db.prepare('INSERT INTO tags (id, name) VALUES (?, ?)').run(tagId, tagName);
+        tagIds.push(tagId);
       }
     }
     assignTagsToMemory(id, tagIds);
@@ -68,10 +74,10 @@ export function createMemory(
   return getMemory(id) as Memory;
 }
 
-export function getMemory(id: string): Memory | undefined {
-  const db = getDatabase();
+export function getMemory(id: string): Memory | null {
+  const db = getDb();
   const mem = db.prepare('SELECT * FROM memories WHERE id = ?').get(id) as Memory | undefined;
-  if (!mem) return undefined;
+  if (!mem) return null;
 
   db.prepare(
     `UPDATE memories SET accessed_at = datetime('now'), access_count = access_count + 1 WHERE id = ?`
@@ -81,18 +87,19 @@ export function getMemory(id: string): Memory | undefined {
   return mem;
 }
 
-export function updateMemory(id: string, fields: Partial<{
-  content: string; tier: string; category: string; importance: number; metadata: string; source: string;
-}>): Memory | undefined {
-  const db = getDatabase();
+export function updateMemory(
+  id: string,
+  fields: Partial<{ content: string; tier: string; category: string; importance: number; metadata: string; source: string }>
+): Memory | null {
+  const db = getDb();
   const existing = db.prepare('SELECT id FROM memories WHERE id = ?').get(id);
-  if (!existing) return undefined;
+  if (!existing) return null;
 
   const updates: string[] = [];
   const values: unknown[] = [];
 
   if (fields.content !== undefined) { updates.push('content = ?'); values.push(fields.content); }
-  if (fields.tier !== undefined) { updates.push('tier = ?'); values.push(validTier(fields.tier)); }
+  if (fields.tier !== undefined) { updates.push('tier = ?'); values.push(normalizeTier(fields.tier)); }
   if (fields.category !== undefined) { updates.push('category = ?'); values.push(fields.category); }
   if (fields.importance !== undefined) { updates.push('importance = ?'); values.push(fields.importance); }
   if (fields.metadata !== undefined) { updates.push('metadata = ?'); values.push(fields.metadata); }
@@ -108,14 +115,14 @@ export function updateMemory(id: string, fields: Partial<{
 }
 
 export function deleteMemory(id: string): boolean {
-  const db = getDatabase();
+  const db = getDb();
   const result = db.prepare('DELETE FROM memories WHERE id = ?').run(id);
   return result.changes > 0;
 }
 
 export function listMemories(options: MemoryListOptions = {}): Memory[] {
-  const db = getDatabase();
-  const conditions: string[] = ['1=1'];
+  const db = getDb();
+  const conditions: string[] = [];
   const values: unknown[] = [];
 
   if (options.tier) { conditions.push('m.tier = ?'); values.push(options.tier); }
@@ -125,11 +132,12 @@ export function listMemories(options: MemoryListOptions = {}): Memory[] {
     values.push(options.tag);
   }
 
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
   const limit = options.limit || 50;
   const offset = options.offset || 0;
 
   const rows = db.prepare(
-    `SELECT DISTINCT m.* FROM memories m WHERE ${conditions.join(' AND ')} ORDER BY m.created_at DESC LIMIT ? OFFSET ?`
+    `SELECT DISTINCT m.* FROM memories m ${where} ORDER BY m.created_at DESC LIMIT ? OFFSET ?`
   ).all(...values, limit, offset) as Memory[];
 
   for (const mem of rows) {
@@ -138,9 +146,9 @@ export function listMemories(options: MemoryListOptions = {}): Memory[] {
   return rows;
 }
 
-export function promoteMemory(id: string): Memory | undefined {
+export function promoteMemory(id: string): Memory | null {
   const mem = getMemory(id);
-  if (!mem) return undefined;
+  if (!mem) throw new NotFoundError('Memory', id);
   const idx = TIER_ORDER.indexOf(mem.tier);
   if (idx >= 0 && idx < TIER_ORDER.length - 1) {
     return updateMemory(id, { tier: TIER_ORDER[idx + 1] });
@@ -148,9 +156,9 @@ export function promoteMemory(id: string): Memory | undefined {
   return mem;
 }
 
-export function demoteMemory(id: string): Memory | undefined {
+export function demoteMemory(id: string): Memory | null {
   const mem = getMemory(id);
-  if (!mem) return undefined;
+  if (!mem) throw new NotFoundError('Memory', id);
   const idx = TIER_ORDER.indexOf(mem.tier);
   if (idx > 0) {
     return updateMemory(id, { tier: TIER_ORDER[idx - 1] });
@@ -158,10 +166,8 @@ export function demoteMemory(id: string): Memory | undefined {
   return mem;
 }
 
-export function getStats(): {
-  total: number; by_tier: Record<string, number>; total_tags: number; total_links: number;
-} {
-  const db = getDatabase();
+export function getStats(): { total: number; by_tier: Record<string, number>; total_tags: number; total_links: number } {
+  const db = getDb();
   const total = (db.prepare('SELECT COUNT(*) as cnt FROM memories').get() as { cnt: number }).cnt;
   const byTierRows = db.prepare('SELECT tier, COUNT(*) as cnt FROM memories GROUP BY tier').all() as { tier: string; cnt: number }[];
   const by_tier: Record<string, number> = {};

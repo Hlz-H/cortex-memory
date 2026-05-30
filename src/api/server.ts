@@ -2,16 +2,14 @@ import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { cors } from 'hono/cors';
-import { logger } from 'hono/logger';
-import { initDatabase, closeDatabase } from '../db/database';
+import { initDatabase, closeDb } from '../db/database';
 import { apiRoutes } from './routes';
 
-export function startServer(port: number = 3456): void {
+export function startServer(port?: number): void {
   initDatabase();
 
   const app = new Hono();
 
-  app.use('*', logger());
   app.use('*', cors({ origin: '*' }));
 
   // API routes
@@ -29,12 +27,12 @@ export function startServer(port: number = 3456): void {
       theme_color: '#00d4aa',
       icons: [
         { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
-        { src: '/icon-512.png', sizes: '512x512', type: 'image/png' }
-      ]
+        { src: '/icon-512.png', sizes: '512x512', type: 'image/png' },
+      ],
     });
   });
 
-  // Simple colored square icons
+  // SVG icons
   app.get('/icon-192.png', (c) => {
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192"><rect width="192" height="192" fill="#00d4aa" rx="24"/><text x="96" y="120" font-size="80" text-anchor="middle" fill="#0f0f23" font-family="Arial">🧠</text></svg>`;
     c.header('Content-Type', 'image/svg+xml');
@@ -51,19 +49,20 @@ export function startServer(port: number = 3456): void {
   app.get('/sw.js', (c) => {
     c.header('Content-Type', 'application/javascript');
     c.header('Cache-Control', 'no-cache');
-    return c.body(`self.addEventListener('install',e=>e.waitUntil(caches.open('cortex-v1').then(c=>c.addAll(['/','/app.js','/manifest.json'])))));self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))));self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(n=>n!=='cortex-v1').map(n=>caches.delete(n))))));`);
+    return c.body(`self.addEventListener('install',e=>e.waitUntil(caches.open('cortex-v1').then(c=>c.addAll(['/','/app.js','/manifest.json']))));self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))));self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(n=>n!=='cortex-v1').map(n=>caches.delete(n))))));`);
   });
 
   // Static web UI
   app.use('/*', serveStatic({ root: './src/web/', index: 'index.html' }));
 
-  const server = serve({ fetch: app.fetch, port });
+  const resolvedPort = port || 3456;
+  const server = serve({ fetch: app.fetch, port: resolvedPort });
 
-  console.log(`🧠 Cortex server running at http://localhost:${port}`);
+  console.log(`🧠 Cortex server running at http://localhost:${resolvedPort}`);
 
   process.on('SIGINT', () => {
     console.log('\nShutting down...');
-    closeDatabase();
+    closeDb();
     server.close();
     process.exit(0);
   });

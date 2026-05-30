@@ -1,4 +1,19 @@
-export const CREATE_TABLES = `
+import Database from 'better-sqlite3';
+import * as fs from 'fs';
+import { getConfig } from '../config';
+
+export interface Migration {
+  version: number;
+  name: string;
+  up: string;
+  down?: string;
+}
+
+const MIGRATIONS: Migration[] = [
+  {
+    version: 1,
+    name: 'initial_schema',
+    up: `
 CREATE TABLE IF NOT EXISTS memories (
   id TEXT PRIMARY KEY,
   content TEXT NOT NULL,
@@ -61,7 +76,7 @@ CREATE TABLE IF NOT EXISTS agents (
   name TEXT NOT NULL,
   description TEXT,
   capabilities TEXT DEFAULT '[]',
-  model TEXT DEFAULT 'llama3',
+  model TEXT DEFAULT 'llama3.2',
   config TEXT DEFAULT '{}',
   status TEXT DEFAULT 'active',
   created_at TEXT DEFAULT (datetime('now'))
@@ -87,4 +102,77 @@ CREATE INDEX IF NOT EXISTS idx_memory_links_source ON memory_links(source_id);
 CREATE INDEX IF NOT EXISTS idx_memory_links_target ON memory_links(target_id);
 CREATE INDEX IF NOT EXISTS idx_agent_runs_agent ON agent_runs(agent_id);
 CREATE INDEX IF NOT EXISTS idx_agent_runs_status ON agent_runs(status);
-`;
+    `,
+  },
+];
+
+let dbInstance: Database.Database | null = null;
+
+export function getDb(): Database.Database {
+  if (dbInstance) return dbInstance;
+  const config = getConfig();
+  const dir = config.dbPath.substring(0, config.dbPath.lastIndexOf('/')) || config.dbPath.substring(0, config.dbPath.lastIndexOf('\\'));
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  dbInstance = new Database(config.dbPath);
+  dbInstance.pragma('journal_mode = WAL');
+  dbInstance.pragma('foreign_keys = ON');
+  return dbInstance;
+}
+
+export function closeDb(): void {
+  if (dbInstance) {
+    dbInstance.close();
+    dbInstance = null;
+  }
+}
+
+export function getCurrentVersion(db?: Database.Database): number {
+  const database = db || getDb();
+  try {
+    const row = database.prepare("SELECT MAX(version) as version FROM schema_version").get() as { version: number } | undefined;
+    return row?.version ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+export function migrate(db?: Database.Database): void {
+  const database = db || getDb();
+
+  // Create version table if not exists
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS schema_version (
+      version INTEGER PRIMARY KEY DEFAULT 0
+    );
+  `);
+
+  // Ensure exactly one row exists
+  const row = database.prepare("SELECT version FROM schema_version LIMIT 1").get() as { version: number } | undefined;
+  if (!row) {
+    database.prepare("INSERT INTO schema_version (version) VALUES (0)").run();
+  }
+
+  const currentVersion = getCurrentVersion(database);
+  const targetVersion = MIGRATIONS.length;
+
+  if (currentVersion >= targetVersion) return;
+
+  for (const migration of MIGRATIONS) {
+    if (migration.version > currentVersion) {
+      database.exec(migration.up);
+      database.prepare('UPDATE schema_version SET version = ? WHERE version = ?').run(migration.version, currentVersion);
+    }
+  }
+}
+
+export function resetDb(): void {
+  closeDb();
+  const config = getConfig();
+  if (fs.existsSync(config.dbPath)) {
+    fs.unlinkSync(config.dbPath);
+  }
+}
+
+export { migrate as migrateUp, closeDb as closeDatabase };

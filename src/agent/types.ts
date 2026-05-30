@@ -5,7 +5,7 @@ export interface AgentConfig {
   model: string;
   systemPrompt: string;
   capabilities: string[];
-  schedule?: string; // cron-like, optional
+  schedule?: string;
   status: 'active' | 'paused' | 'error';
 }
 

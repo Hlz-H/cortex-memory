@@ -1,4 +1,6 @@
-import { initDatabase } from '../db/database';
+import { Hono } from 'hono';
+import { getConfig } from '../config';
+import { initDatabase, getDb } from '../db/database';
 import { getToolDescriptions, executeTool } from '../agent/tools';
 
 interface MCPRequest {
@@ -19,13 +21,7 @@ const TOOLS = [
   {
     name: 'read_memory',
     description: 'Read a memory by its ID. Returns full memory with tags and metadata.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        id: { type: 'string', description: 'Memory ID' }
-      },
-      required: ['id']
-    }
+    inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'Memory ID' } }, required: ['id'] },
   },
   {
     name: 'search_memories',
@@ -34,12 +30,12 @@ const TOOLS = [
       type: 'object',
       properties: {
         query: { type: 'string', description: 'Search query text' },
-        tier: { type: 'string', description: 'Filter by tier (permanent/longterm/shortterm/instant)' },
+        tier: { type: 'string', description: 'Filter by tier' },
         tag: { type: 'string', description: 'Filter by tag name' },
-        limit: { type: 'number', description: 'Max results (default 50)' }
+        limit: { type: 'number', description: 'Max results (default 50)' },
       },
-      required: ['query']
-    }
+      required: ['query'],
+    },
   },
   {
     name: 'write_memory',
@@ -49,12 +45,12 @@ const TOOLS = [
       properties: {
         content: { type: 'string', description: 'Memory content' },
         tier: { type: 'string', description: 'Tier: permanent/longterm/shortterm/instant' },
-        tags: { type: 'array', items: { type: 'string' }, description: 'Tag names to assign' },
+        tags: { type: 'array', items: { type: 'string' }, description: 'Tag names' },
         category: { type: 'string', description: 'Category' },
-        importance: { type: 'number', description: 'Importance score 0.1-10' }
+        importance: { type: 'number', description: 'Importance 0.1-10' },
       },
-      required: ['content']
-    }
+      required: ['content'],
+    },
   },
   {
     name: 'link_memories',
@@ -64,34 +60,54 @@ const TOOLS = [
       properties: {
         source_id: { type: 'string', description: 'Source memory ID' },
         target_id: { type: 'string', description: 'Target memory ID' },
-        link_type: { type: 'string', description: 'Link type: related_to/depends_on/derived_from/contradicts/generalizes/sequential' },
-        weight: { type: 'number', description: 'Link weight 0-1' }
+        link_type: { type: 'string', description: 'Link type' },
+        weight: { type: 'number', description: 'Weight 0-1' },
       },
-      required: ['source_id', 'target_id']
-    }
+      required: ['source_id', 'target_id'],
+    },
   },
   {
     name: 'list_tags',
     description: 'List all tags in the memory system.',
-    inputSchema: { type: 'object', properties: {} }
+    inputSchema: { type: 'object', properties: {} },
   },
   {
     name: 'get_stats',
-    description: 'Get system statistics: memory counts by tier, tag count, link count.',
-    inputSchema: { type: 'object', properties: {} }
+    description: 'Get system statistics.',
+    inputSchema: { type: 'object', properties: {} },
   },
   {
     name: 'get_memory_links',
     description: 'Get linked memories for a given memory ID.',
     inputSchema: {
       type: 'object',
-      properties: {
-        id: { type: 'string', description: 'Memory ID' },
-        depth: { type: 'number', description: 'Traversal depth (0=direct only)' }
-      },
-      required: ['id']
-    }
-  }
+      properties: { id: { type: 'string', description: 'Memory ID' }, depth: { type: 'number', description: 'Traversal depth' } },
+      required: ['id'],
+    },
+  },
+];
+
+const PROMPTS = [
+  {
+    name: 'memory_assistant',
+    description: 'Assistant for managing and querying the local memory system',
+    arguments: [],
+  },
+];
+
+const RESOURCES = [
+  {
+    uri: 'cortex://stats',
+    name: 'System Statistics',
+    description: 'Current memory system statistics',
+    mimeType: 'application/json',
+  },
+  {
+    uri: 'cortex://agents',
+    name: 'Available Agents',
+    description: 'List of built-in AI agents',
+    mimeType: 'application/json',
+  },
 ];
 
 export function startMcpServer(): void {
@@ -126,8 +142,8 @@ export function startMcpServer(): void {
       case 'initialize':
         return { jsonrpc: '2.0', id: req.id, result: {
           protocolVersion: '2024-11-05',
-          capabilities: { tools: {} },
-          serverInfo: { name: 'cortex', version: '0.1.0' }
+          capabilities: { tools: {}, prompts: {}, resources: {} },
+          serverInfo: { name: 'cortex', version: '0.1.0' },
         }};
 
       case 'tools/list':
@@ -145,14 +161,40 @@ export function startMcpServer(): void {
         try {
           const result = executeTool(toolName, toolArgs);
           return { jsonrpc: '2.0', id: req.id, result: {
-            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
           }};
         } catch (e: unknown) {
           return { jsonrpc: '2.0', id: req.id, result: {
             content: [{ type: 'text', text: `Error: ${(e as Error).message}` }],
-            isError: true
+            isError: true,
           }};
         }
+      }
+
+      case 'prompts/list':
+        return { jsonrpc: '2.0', id: req.id, result: { prompts: PROMPTS } };
+
+      case 'prompts/get':
+        return { jsonrpc: '2.0', id: req.id, result: {
+          description: 'Cortex Memory Assistant',
+          messages: [{ role: 'system', content: { type: 'text', text: 'You are a memory assistant. Use the available tools to read, search, and manage memories in the Cortex system.' } }],
+        }};
+
+      case 'resources/list':
+        return { jsonrpc: '2.0', id: req.id, result: { resources: RESOURCES } };
+
+      case 'resources/read': {
+        const uri = (req.params?.uri as string) || '';
+        if (uri === 'cortex://stats') {
+          const { getStats } = require('../memory/store');
+          const stats = getStats();
+          return { jsonrpc: '2.0', id: req.id, result: { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(stats) }] } };
+        }
+        if (uri === 'cortex://agents') {
+          const { listBuiltinAgents } = require('../agent/builtins');
+          return { jsonrpc: '2.0', id: req.id, result: { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(listBuiltinAgents()) }] } };
+        }
+        return { jsonrpc: '2.0', id: req.id, error: { code: -32602, message: 'Unknown resource' } };
       }
 
       default:
@@ -160,6 +202,5 @@ export function startMcpServer(): void {
     }
   }
 
-  // Keep process alive
   stdin.on('end', () => process.exit(0));
 }

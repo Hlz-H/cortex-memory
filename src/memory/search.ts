@@ -1,4 +1,4 @@
-import { getDatabase } from '../db/database';
+import { getDb } from '../db/database';
 import { getMemoryTags } from '../tags/index';
 
 export interface SearchOptions {
@@ -20,7 +20,7 @@ export interface SearchResult {
 }
 
 export function searchMemories(query: string, options: SearchOptions = {}): SearchResult[] {
-  const db = getDatabase();
+  const db = getDb();
   const conditions: string[] = [];
   const values: unknown[] = [];
 
@@ -30,14 +30,14 @@ export function searchMemories(query: string, options: SearchOptions = {}): Sear
     values.push(options.tag);
   }
 
-  const extraWhere = conditions.length > 0 ? 'AND (' + conditions.join(' AND ') + ')' : '';
+  const whereExtra = conditions.length > 0 ? 'AND (' + conditions.join(' AND ') + ')' : '';
   const limit = options.limit || 50;
 
   const rows = db.prepare(
     'SELECT m.id, m.content, m.tier, m.category, m.importance, m.created_at, m.accessed_at, m.access_count ' +
     'FROM memories m ' +
     'WHERE m.rowid IN (SELECT rowid FROM memories_fts WHERE memories_fts MATCH ?) ' +
-    extraWhere + ' ' +
+    whereExtra + ' ' +
     'ORDER BY m.created_at DESC LIMIT ?'
   ).all(query, ...values, limit) as SearchResult[];
 
