@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import {
-  initCommand, statsCommand, serveCommand, mcpCommand, getCommand,
+  initCommand, statsCommand, serveCommand, mcpCommand, getCommand, autoSummarizeCommand,
 } from './cli/system';
 import {
   addCommand, listCommand, searchCommand, promoteCommand, demoteCommand, forgetCommand,
@@ -92,5 +92,12 @@ program.command('agent')
       process.exit(1);
     }
   });
+
+
+program.command('auto-summarize <text>')
+  .description('Auto-summarize text into memories using Ollama')
+  .option('-t, --tier <tier>', 'Memory tier', 'shortterm')
+  .option('-c, --category <category>', 'Category', 'auto-summary')
+  .action(autoSummarizeCommand);
 
 program.parse(process.argv);

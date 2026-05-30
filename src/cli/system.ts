@@ -5,6 +5,7 @@ import { getLinkStats } from '../links/index';
 import { startServer } from '../api/server';
 import { startMcpServer } from '../mcp/server';
 import { getMemory } from '../memory/store';
+import { autoSummarize } from '../tools/auto-summarize';
 
 const logger = getLogger();
 
@@ -58,4 +59,13 @@ export function getCommand(id: string): void {
   console.log(`  Tags: ${tagNames || '(none)'}`);
   console.log(`  Created: ${mem.created_at}`);
   console.log(`  Accessed: ${mem.accessed_at} (${mem.access_count}x)\n`);
+}
+
+
+export async function autoSummarizeCommand(text: string, options: { tier?: string; category?: string }): Promise<void> {
+  const ids = await autoSummarize({ text, tier: options.tier, category: options.category });
+  console.log(`✓ Auto-summarized into ${ids.length} memories`);
+  for (const id of ids) {
+    console.log(`  - ${id}`);
+  }
 }
